@@ -1,0 +1,22 @@
+# =============================================================================
+# 静态托管服务 · crontab 条目（root）
+# 安装：sudo crontab -e  然后粘贴下面内容
+# 或：  sudo crontab -l | cat - crontab.txt | sudo crontab -
+# =============================================================================
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# ---- 每 5 分钟：frpc / nginx 自愈 + 磁盘与单用户容量告警 --------------------
+# watchdog.sh 自己写 /var/log/hosting-watchdog.log，故此处丢弃 stdout 避免重复记录
+*/5 * * * * . /etc/default/hosting-watchdog 2>/dev/null; export SC_KEY MIN_FREE_GB USER_MAX_MB; /usr/local/bin/watchdog.sh >/dev/null 2>&1
+
+# ---- 每天 03:30：单用户容量巡检（-q 静默，仅有超额时输出并以 exit 2 结束）---
+30 3 * * * /usr/local/bin/quota_check.sh 500 -q >> /var/log/hosting-quota.log 2>&1
+
+# ---- 每周日 04:10：清理 30 天前的站点备份 ----------------------------------
+10 4 * * 0 find /home/hosting/backup -maxdepth 1 -type f -name '*.tar.gz' -mtime +30 -print -delete >> /var/log/hosting-backup.log 2>&1
+
+# ---- 每天 05:00：权限基线复查（静默修复，输出留档）-------------------------
+0 5 * * * /usr/local/bin/secure.sh >> /var/log/hosting-secure.log 2>&1
