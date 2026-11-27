@@ -1,0 +1,49 @@
+# =============================================================================
+# File Browser —— 用户文件上传门户
+# 部署: docker compose up -d
+# 访问: http://127.0.0.1:9080 （仅本机；公网通过 frp tcp 映射 9080，见 README）
+# =============================================================================
+services:
+  filebrowser:
+    # 固定大版本，避免 latest 意外升级到 v3（配置格式不同）
+    image: filebrowser/filebrowser:v2
+    container_name: filebrowser
+    restart: unless-stopped
+
+    # 关键：只绑定回环地址，绝不 0.0.0.0
+    ports:
+      - "127.0.0.1:9080:80"
+
+    # 与 www-data 保持一致（uid/gid=33），保证上传文件 Nginx 可直接读取
+    user: "33:33"
+
+    volumes:
+      # 只挂载用户站点根，容器内看不到 /home/hosting 其他内容
+      - /home/hosting/sites:/srv
+      # 数据库与配置持久化（宿主机目录需 chown 33:33，见 make-dirs）
+      - ./data:/database
+      - ./filebrowser.json:/.filebrowser.json:ro
+
+    environment:
+      - TZ=Asia/Shanghai
+      - PUID=33
+      - PGID=33
+
+    # 容器自身资源限制：防止单个大文件上传把宿主拖垮
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
