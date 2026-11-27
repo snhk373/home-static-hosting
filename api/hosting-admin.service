@@ -1,0 +1,42 @@
+[Unit]
+Description=Hosting Admin API (静态托管管理接口)
+Documentation=file:/opt/hosting-admin/README.md
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# 说明：本服务需要创建/删除 /home/hosting 下的目录并 chown 给 www-data，
+# 因此以 root 运行；对外仅监听 127.0.0.1，不做 ProtectHome/ProtectSystem 限制。
+WorkingDirectory=/opt/hosting-admin
+EnvironmentFile=-/etc/hosting-admin.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/hosting-admin/app.py
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# ---- 最小化攻击面（在不影响业务读写的前提下）----
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+# ---- 日志 ----
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hosting-admin
+
+[Install]
+WantedBy=multi-user.target
