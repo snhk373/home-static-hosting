@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hosting Admin</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', sans-serif; background: #0d0d1a; color: #e0e0e0; padding: 1.5rem; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.header h1 { font-size: 1.5rem; background: linear-gradient(135deg, #7f5fff, #5b8cff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.header .meta { font-size: .75rem; opacity: .6; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.card { background: #1a1a2e; padding: 1rem; border-radius: 12px; border: 1px solid #2a2a4a; }
+.card h3 { font-size: .8rem; opacity: .7; margin-bottom: .5rem; }
+.card .val { font-size: 1.4rem; font-weight: bold; }
+.section-title { font-size: .9rem; opacity: .7; margin: 1.2rem 0 .6rem; }
+table { width: 100%; border-collapse: collapse; background: #1a1a2e; border-radius: 12px; overflow: hidden; }
+th, td { padding: .7rem; text-align: left; border-bottom: 1px solid #2a2a4a; font-size: .85rem; }
+th { background: #16213e; opacity: .8; }
+tr:hover { background: #1a2a4e; }
+.btn { padding: .3rem .8rem; border-radius: 6px; border: none; cursor: pointer; font-size: .75rem; margin-right: .3rem; }
+.btn-add { background: #7f5fff; color: #fff; }
+.btn-del { background: #ff5f5f; color: #fff; }
+.btn-ghost { background: #2a2a4a; color: #cfcfff; }
+.btn:hover { opacity: .85; }
+.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.7); justify-content: center; align-items: center; z-index: 10; }
+.modal.show { display: flex; }
+.modal-content { background: #1a1a2e; padding: 2rem; border-radius: 16px; width: 90%; max-width: 520px; }
+.modal-content input, .modal-content textarea { width: 100%; padding: .7rem; margin-bottom: 1rem; border-radius: 8px; border: 1px solid #2a2a4a; background: #0d0d1a; color: #e0e0e0; }
+.modal-content button { padding: .7rem 1.5rem; border-radius: 8px; border: none; cursor: pointer; }
+.progress { height: 6px; background: #2a2a4a; border-radius: 3px; overflow: hidden; margin-top: .3rem; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, #7f5fff, #5b8cff); transition: width .3s; }
+.progress-bar.over { background: linear-gradient(90deg, #ff5f5f, #ff8f5f); }
+#toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: #2a2a4a; color: #fff; padding: .6rem 1.2rem; border-radius: 8px; font-size: .85rem; display: none; z-index: 20; max-width: 80%; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .8rem; background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 1rem; font-size: .85rem; }
+.settings-grid label { opacity: .6; font-size: .75rem; display: block; margin-bottom: .25rem; }
+.settings-grid input { width: 100%; padding: .45rem; border-radius: 6px; border: 1px solid #2a2a4a; background: #0d0d1a; color: #e0e0e0; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🏠 HomePage Hosting</h1>
+  <div class="meta">
+    <span id="publicBase"></span>
+    <button class="btn btn-ghost" onclick="logout()">换令牌</button>
+    <button class="btn btn-add" onclick="showAdd()">+ 新建用户</button>
+  </div>
+</div>
+<div class="cards" id="statusCards"></div>
+
+<div class="section-title">⚙️ 站点设置（保存到服务器 settings.json） <button class="btn btn-ghost" onclick="saveSettings()">保存设置</button></div>
+<div class="settings-grid" id="settingsGrid"></div>
+
+<div class="section-title">👥 用户站点</div>
+<table>
+  <thead><tr><th>用户</th><th>访问URL</th><th>磁盘</th><th>创建时间</th><th>最后更新</th><th>状态</th><th>操作</th></tr></thead>
+  <tbody id="userTable"><tr><td colspan="7" style="opacity:.5">加载中…</td></tr></tbody>
+</table>
+
+<div class="modal" id="addModal">
+  <div class="modal-content">
+    <h2 style="margin-bottom:1rem">新建用户</h2>
+    <input id="newUser" placeholder="用户名（3~32 位，小写字母/数字/-/_）">
+    <textarea id="customHtml" rows="6" placeholder="自定义 index.html（留空用默认占位页）"></textarea>
+    <button class="btn btn-add" onclick="addUser()">创建</button>
+    <button class="btn btn-del" onclick="hideAdd()">取消</button>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+let TOKEN = localStorage.getItem('hosting_admin_token') || '';
+if (!TOKEN) {
+  TOKEN = prompt('输入 Admin Token:') || '';
+  if (!TOKEN) { document.body.innerHTML = '<p style="padding:2rem">需要 Admin Token 才能使用面板。</p>'; throw new Error('no token'); }
+  localStorage.setItem('hosting_admin_token', TOKEN);
+}
+function logout() { localStorage.removeItem('hosting_admin_token'); location.reload(); }
+
+function toast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = isErr ? '#7a2a2a' : '#2a2a4a';
+  t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.display = 'none'; }, 3500);
+}
+
+async function api(path, opt = {}) {
+  opt.headers = Object.assign({}, opt.headers, { 'X-Admin-Token': TOKEN });
+  if (opt.body && typeof opt.body === 'object') {
+    opt.body = JSON.stringify(opt.body);
+    opt.headers['Content-Type'] = 'application/json';
+  }
+  let r;
+  try { r = await fetch(path, opt); }
+  catch (e) { throw new Error('网络错误：' + e.message); }
+  let d = null;
+  try { d = await r.json(); } catch (e) { d = {}; }
+  if (!r.ok) {
+    const msg = (d && d.error) ? d.error : ('HTTP ' + r.status);
+    throw new Error(msg);
+  }
+  return d;
+}
+
+async function loadStatus() {
+  try {
+    const d = await api('/api/status');
+    document.getElementById('publicBase').textContent = d.frp_url + ' · nginx:' + d.nginx_port;
+    document.getElementById('statusCards').innerHTML = `
+      <div class="card"><h3>用户数</h3><div class="val">${d.users}</div></div>
+      <div class="card"><h3>总磁盘</h3><div class="val">${d.total_disk_mb} MB</div></div>
+      <div class="card"><h3>负载</h3><div class="val">${d.loadavg}</div></div>
+      <div class="card"><h3>内存</h3><div class="val">${d.mem_used_percent}%</div></div>
+      <div class="card"><h3>磁盘剩余</h3><div class="val">${d.disk_free_gb} / ${d.disk_total_gb} GB</div></div>`;
+  } catch (e) { toast('状态加载失败：' + e.message, true); }
+}
+
+const SETTING_LABELS = { site_name: '站点名称', price_basic: '基础版价格(¥/月)', price_pro: '专业版价格(¥/月)', price_max: '旗舰版价格(¥/月)', notice: '公告' };
+
+async function loadSettings() {
+  try {
+    const s = await api('/api/settings');
+    document.getElementById('settingsGrid').innerHTML = Object.keys(SETTING_LABELS).map(k => `
+      <div><label>${SETTING_LABELS[k]}</label>
+      <input id="set_${k}" value="${(s[k] || '').replace(/"/g, '&quot;')}"></div>`).join('');
+  } catch (e) { /* 设置区失败不阻塞主表 */ }
+}
+
+async function saveSettings() {
+  const body = {};
+  for (const k of Object.keys(SETTING_LABELS)) body[k] = document.getElementById('set_' + k).value;
+  try {
+    await api('/api/settings', { method: 'POST', body });
+    toast('设置已保存');
+  } catch (e) { toast('保存失败：' + e.message, true); }
+}
+
+async function loadUsers() {
+  try {
+    const users = await api('/api/users');
+    const tbody = document.getElementById('userTable');
+    if (!users.length) { tbody.innerHTML = '<tr><td colspan="7" style="opacity:.5">暂无用户，点右上角「+ 新建用户」</td></tr>'; return; }
+    tbody.innerHTML = users.map(u => {
+      const pct = Math.min(u.disk_mb / (u.quota_mb || 200) * 100, 100);
+      const over = u.disk_mb > (u.quota_mb || 200);
+      return `
+      <tr>
+        <td><strong>${u.username}</strong>${u.note ? '<div style="opacity:.5;font-size:.75rem">' + u.note + '</div>' : ''}</td>
+        <td><a href="${u.url}" target="_blank" style="color:#7f5fff">${u.url.replace('http://', '')}</a></td>
+        <td><div>${u.disk_mb} / ${u.quota_mb} MB</div>
+            <div class="progress"><div class="progress-bar${over ? ' over' : ''}" style="width:${pct}%"></div></div></td>
+        <td>${(u.created_at || '-').slice(0, 10)}</td>
+        <td>${(u.last_modified || '-').replace('T', ' ')}</td>
+        <td>${u.enabled ? '🟢' : '🔴'}</td>
+        <td><button class="btn btn-del" onclick="delUser('${u.username}')">删除</button></td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('userTable').innerHTML =
+      `<tr><td colspan="7" style="color:#ff8f8f">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+function showAdd() { document.getElementById('addModal').classList.add('show'); }
+function hideAdd() { document.getElementById('addModal').classList.remove('show'); }
+
+async function addUser() {
+  const username = document.getElementById('newUser').value.trim().toLowerCase();
+  const html = document.getElementById('customHtml').value.trim();
+  if (!username) return toast('请输入用户名', true);
+  try {
+    const r = await api('/api/users', { method: 'POST', body: { username, custom_html: html } });
+    toast('已创建：' + r.url);
+    hideAdd();
+    document.getElementById('newUser').value = '';
+    document.getElementById('customHtml').value = '';
+    loadUsers(); loadStatus();
+  } catch (e) { toast('创建失败：' + e.message, true); }
+}
+
+async function delUser(name) {
+  if (!confirm(`删除 ${name}？\n（删除前会自动备份到服务器 backup/ 目录）`)) return;
+  try {
+    const r = await api('/api/users/' + encodeURIComponent(name) + '?backup=true', { method: 'DELETE' });
+    toast('已删除' + (r.backup_file ? '，备份：' + r.backup_file : ''));
+    loadUsers(); loadStatus();
+  } catch (e) { toast('删除失败：' + e.message, true); }
+}
+
+loadStatus(); loadSettings(); loadUsers();
+setInterval(loadStatus, 30000);
+</script>
+</body>
+</html>
